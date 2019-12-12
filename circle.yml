@@ -219,7 +219,7 @@ jobs:
 
   bindings-go-min:
     docker:
-      - image: circleci/golang:1.9
+      - image: circleci/golang:1.11
     steps: *bindings-go-steps
 
   bindings-java:
