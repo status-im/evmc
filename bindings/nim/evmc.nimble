@@ -1,3 +1,8 @@
+# Copyright (c) 2018-2020 Status Research & Development GmbH
+# Licensed under the Apache License, Version 2.0.
+# This file may not be copied, modified, or distributed except according to
+# those terms.
+
 mode = ScriptMode.Verbose
 
 packageName   = "evmc"
@@ -14,6 +19,9 @@ proc test(name: string, lang: string = "cpp") =
   if not dirExists "build":
     mkDir "build"
   --run
+  --forceBuild
+  --verbosity:0
+  --hints:off
   switch("out", ("./build/" & name))
   setCommand lang, "tests/" & name & ".nim"
 

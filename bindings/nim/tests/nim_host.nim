@@ -1,6 +1,11 @@
-import tables, hashes, strutils
-import ../../evmc/evmc
-import stew/byteutils
+# Copyright (c) 2018-2020 Status Research & Development GmbH
+# Licensed under the Apache License, Version 2.0.
+# This file may not be copied, modified, or distributed except according to
+# those terms.
+
+import tables, hashes, strutils,
+  stew/byteutils,
+  ../evmc/evmc
 
 type
   Account = ref object
@@ -11,6 +16,24 @@ type
   HostContext = ref object
     tx_context: evmc_tx_context
     accounts: Table[evmc_address, Account]
+
+const
+  EVMC_HOST_NAME = "example_vm"
+  EVMC_VM_VERSION = "0.0.0"
+
+# {.nodecl.} only works in the global scope
+var globalVM {.importc, nodecl.}: evmc_vm
+# Nim doesn't support initialising a struct with const fields, so we do it in C
+{.emit: [evmc_vm, " ", globalVM, " = {.abi_version = ", EVMC_ABI_VERSION, ", .name = \"", EVMC_HOST_NAME, "\", .version = \"", EVMC_VM_VERSION, "\"};"].}
+
+proc incl*(a: var evmc_capabilities_flagset, b: evmc_capabilities) {.inline.} =
+  a = evmc_capabilities_flagset(a.uint32 or b.uint32)
+
+proc excl*(a: var evmc_capabilities_flagset, b: evmc_capabilities) {.inline.} =
+  a = evmc_capabilities_flagset(a.uint32 and (not b.uint32))
+
+proc contains*(a: evmc_capabilities_flagset, b: evmc_capabilities): bool {.inline.} =
+  (a.uint32 and b.uint32) != 0
 
 proc hash*(x: evmc_bytes32): Hash =
   result = hash(x.bytes)
@@ -24,8 +47,11 @@ proc codeHash(acc: Account): evmc_bytes32 =
     let idx = v.int mod sizeof(result.bytes)
     result.bytes[idx] = result.bytes[idx] xor v
 
-proc evmcReleaseResultImpl(result: var evmc_result) {.cdecl.} =
+proc evmcReleaseResultImpl(result: ptr evmc_result) {.cdecl.} =
   discard
+
+converter toEVMCHostContext*(ctx: HostContext): ptr evmc_host_context =
+  cast[ptr evmc_host_context](ctx)
 
 proc evmcGetTxContextImpl(ctx: HostContext): evmc_tx_context {.cdecl.} =
   ctx.tx_context
@@ -36,7 +62,7 @@ proc evmcGetBlockHashImpl(ctx: HostContext, number: int64): evmc_bytes32 {.cdecl
   if number < current_block_number and number >= current_block_number - 256:
     result.bytes = hash
 
-proc evmcAccountExistsImpl(ctx: HostContext, address: var evmc_address): c99bool {.cdecl.} =
+proc evmcAccountExistsImpl(ctx: HostContext, address: var evmc_address): bool {.cdecl.} =
   address in ctx.accounts
 
 proc evmcGetStorageImpl(ctx: HostContext, address: var evmc_address, key: var evmc_bytes32): evmc_bytes32 {.cdecl.} =
@@ -112,7 +138,7 @@ proc evmcSetOptionImpl(vm: ptr evmc_vm, name, value: cstring): evmc_set_option_r
 
 proc evmcExecuteImpl(vm: ptr evmc_vm, host: ptr evmc_host_interface,
                           ctx: HostContext, rev: evmc_revision,
-                          msg: evmc_message, code: ptr byte, code_size: uint): evmc_result {.cdecl.} =
+                          msg: ptr evmc_message, code: ptr byte, code_size: uint): evmc_result {.cdecl.} =
 
   var the_code = "\x43\x60\x00\x55\x43\x60\x00\x52\x59\x60\x00\xf3"
   if (code_size.int == the_code.len) and equalMem(code, the_code[0].addr, code_size):
@@ -135,7 +161,7 @@ proc evmcExecuteImpl(vm: ptr evmc_vm, host: ptr evmc_host_interface,
   result.status_code = EVMC_FAILURE
   result.gas_left = 0
 
-proc evmcGetCapabilitiesImpl(vm: ptr evmc_vm): evmc_capabilities {.cdecl.} =
+proc evmcGetCapabilitiesImpl(vm: ptr evmc_vm): evmc_capabilities_flagset {.cdecl.} =
   result.incl(EVMC_CAPABILITY_EVM1)
   result.incl(EVMC_CAPABILITY_EWASM)
 
@@ -143,67 +169,38 @@ proc evmcDestroyImpl(vm: ptr evmc_vm) {.cdecl.} =
   dealloc(vm)
 
 proc init_host_interface(): evmc_host_interface =
-  # workaround for nim cpp codegen bug
-  {.emit: [result.account_exists, " = (", evmc_account_exists_fn, ")", evmcAccountExistsImpl, ";" ].}
-  {.emit: [result.get_storage, " = (", evmc_get_storage_fn, ")", evmcGetStorageImpl, ";" ].}
-  {.emit: [result.set_storage, " = (", evmc_set_storage_fn, ")", evmcSetStorageImpl, ";" ].}
-  {.emit: [result.get_balance, " = (", evmc_get_balance_fn, ")", evmcGetBalanceImpl, ";" ].}
-  {.emit: [result.get_code_size, " = (", evmc_get_code_size_fn, ")", evmcGetCodeSizeImpl, ";" ].}
-  {.emit: [result.get_code_hash, " = (", evmc_get_code_hash_fn, ")", evmcGetCodeHashImpl, ";" ].}
-  {.emit: [result.copy_code, " = (", evmc_copy_code_fn, ")", evmcCopyCodeImpl, ";" ].}
-  {.emit: [result.selfdestruct, " = (", evmc_selfdestruct_fn, ")", evmcSelfdestructImpl, ";" ].}
-  {.emit: [result.call, " = (", evmc_call_fn, ")", evmcCallImpl, ";" ].}
-  {.emit: [result.get_tx_context, " = (", evmc_get_tx_context_fn, ")", evmcGetTxContextImpl, ";" ].}
-  {.emit: [result.get_block_hash, " = (", evmc_get_block_hash_fn, ")", evmcGetBlockHashImpl, ";" ].}
-  {.emit: [result.emit_log, " = (", evmc_emit_log_fn, ")", evmcEmitLogImpl, ";" ].}
+  result.account_exists = cast[evmc_account_exists_fn](evmcAccountExistsImpl)
+  result.get_storage = cast[evmc_get_storage_fn](evmcGetStorageImpl)
+  result.set_storage = cast[evmc_set_storage_fn](evmcSetStorageImpl)
+  result.get_balance = cast[evmc_get_balance_fn](evmcGetBalanceImpl)
+  result.get_code_size = cast[evmc_get_code_size_fn](evmcGetCodeSizeImpl)
+  result.get_code_hash = cast[evmc_get_code_hash_fn](evmcGetCodeHashImpl)
+  result.copy_code = cast[evmc_copy_code_fn](evmcCopyCodeImpl)
+  result.selfdestruct = cast[evmc_selfdestruct_fn](evmcSelfdestructImpl)
+  result.call = cast[evmc_call_fn](evmcCallImpl)
+  result.get_tx_context = cast[evmc_get_tx_context_fn](evmcGetTxContextImpl)
+  result.get_block_hash = cast[evmc_get_block_hash_fn](evmcGetBlockHashImpl)
+  result.emit_log = cast[evmc_emit_log_fn](evmcEmitLogImpl)
 
-  #result.account_exists = cast[evmc_account_exists_fn](evmcAccountExistsImpl)
-  #result.get_storage = cast[evmc_get_storage_fn](evmcGetStorageImpl)
-  #result.set_storage = cast[evmc_set_storage_fn](evmcSetStorageImpl)
-  #result.get_balance = cast[evmc_get_balance_fn](evmcGetBalanceImpl)
-  #result.get_code_size = cast[evmc_get_code_size_fn](evmcGetCodeSizeImpl)
-  #result.get_code_hash = cast[evmc_get_code_hash_fn](evmcGetCodeHashImpl)
-  #result.copy_code = cast[evmc_copy_code_fn](evmcCopyCodeImpl)
-  #result.selfdestruct = cast[evmc_selfdestruct_fn](evmcSelfdestructImpl)
-  #result.call = cast[evmc_call_fn](evmcCallImpl)
-  #result.get_tx_context = cast[evmc_get_tx_context_fn](evmcGetTxContextImpl)
-  #result.get_block_hash = cast[evmc_get_block_hash_fn](evmcGetBlockHashImpl)
-  #result.emit_log = cast[evmc_emit_log_fn](evmcEmitLogImpl)
-
-const
-  EVMC_HOST_NAME = "example_vm"
-  EVMC_VM_VERSION = "0.0.0"
-
-proc init(vm: var evmc_vm) {.exportc, cdecl.} =
-  vm.abi_version = EVMC_ABI_VERSION
-  vm.name = EVMC_HOST_NAME
-  vm.version = EVMC_VM_VERSION
+proc init(vm: ptr evmc_vm) {.exportc, cdecl.} =
   vm.destroy = evmcDestroyImpl
-
-  {.emit: [vm.execute, " = (", evmc_execute_fn, ")", evmcExecuteImpl, ";" ].}
-  #vm.execute = cast[evmc_execute_fn](evmcExecuteImpl)
-
+  vm.execute = cast[evmc_execute_fn](evmcExecuteImpl)
   vm.get_capabilities = evmcGetCapabilitiesImpl
   vm.set_option = evmcSetOptionImpl
 
 let gHost = init_host_interface()
-proc nim_host_get_interface(): ptr evmc_host_interface {.exportc, cdecl.} =
+proc nim_host_get_interface*(): ptr evmc_host_interface {.exportc, cdecl.} =
   result = gHost.unsafeAddr
 
-proc nim_host_create_context(tx_context: evmc_tx_context): HostContext {.exportc, cdecl.} =
-  const address = evmc_address(bytes: hexToByteArray[20]("0x0001020000000000000000000000000000000000"))
-  var acc = Account(
-    balance: evmc_uint256be(bytes: hexToByteArray[32]("0x0100000000000000000000000000000000000000000000000000000000000000")),
-    code: @[10.byte, 11, 12, 13, 14, 15]
-  )
-
+proc nim_host_create_context*(tx_context: evmc_tx_context): HostContext {.exportc, cdecl.} =
   result = HostContext(tx_context: tx_context)
-  result.accounts[address] = acc
   GC_ref(result)
 
-proc nim_host_destroy_context(ctx: HostContext) {.exportc, cdecl.} =
+proc nim_host_destroy_context*(ctx: HostContext) {.exportc, cdecl.} =
   GC_unref(ctx)
 
-proc nim_create_example_vm(): ptr evmc_vm {.exportc, cdecl.} =
-  result = create(evmc_vm)
-  init(result[])
+proc nim_create_example_vm*(): ptr evmc_vm {.exportc, cdecl.} =
+  result = cast[ptr evmc_vm](new(evmc_vm))
+  copyMem(result, globalVM.addr, sizeof(globalVM))
+  init(result)
+

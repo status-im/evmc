@@ -1,19 +1,24 @@
-import evmc
+# Copyright (c) 2018-2020 Status Research & Development GmbH
+# Licensed under the Apache License, Version 2.0.
+# This file may not be copied, modified, or distributed except according to
+# those terms.
+
+import ./evmc
 
 type
   HostContext* = object
     host: ptr evmc_host_interface
-    context: evmc_host_context
+    context: ptr evmc_host_context
 
   EvmcVM* = object
     vm: ptr evmc_vm
     hc: HostContext
 
-proc init*(x: var HostContext, host: ptr evmc_host_interface, context: evmc_host_context) =
+proc init*(x: var HostContext, host: ptr evmc_host_interface, context: ptr evmc_host_context) =
   x.host = host
   x.context = context
 
-proc init*(x: typedesc[HostContext], host: ptr evmc_host_interface, context: evmc_host_context): HostContext =
+proc init*(x: typedesc[HostContext], host: ptr evmc_host_interface, context: ptr evmc_host_context): HostContext =
   result.init(host, context)
 
 proc getTxContext*(ctx: HostContext): evmc_tx_context =
@@ -79,7 +84,7 @@ proc name*(vm: EvmcVM): string =
 proc version*(vm: EvmcVM): string =
   $vm.vm.version
 
-proc getCapabilities*(vm: EvmcVM): evmc_capabilities =
+proc getCapabilities*(vm: EvmcVM): evmc_capabilities_flagset =
   vm.vm.get_capabilities(vm.vm)
 
 proc setOption*(vm: EvmcVM, name, value: string): evmc_set_option_result =
@@ -88,7 +93,7 @@ proc setOption*(vm: EvmcVM, name, value: string): evmc_set_option_result =
 
   result = EVMC_SET_OPTION_INVALID_NAME
 
-proc execute*(vm: EvmcVM, rev: evmc_revision, msg: evmc_message, code: openArray[byte]): evmc_result =
+proc execute*(vm: EvmcVM, rev: evmc_revision, msg: ptr evmc_message, code: openArray[byte]): evmc_result =
   vm.vm.execute(vm.vm, vm.hc.host, vm.hc.context, rev, msg, code[0].unsafeAddr, code.len.uint)
 
 proc destroy*(vm: EvmcVM) =

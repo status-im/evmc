@@ -1,23 +1,23 @@
-import ../evmc/[evmc, evmc_nim], unittest
-import evmc_nim/nim_host
-import stew/byteutils
+# Copyright (c) 2018-2020 Status Research & Development GmbH
+# Licensed under the Apache License, Version 2.0.
+# This file may not be copied, modified, or distributed except according to
+# those terms.
 
-{.compile: "evmc_c/example_host.cpp".}
-{.compile: "evmc_c/example_vm.cpp".}
-{.passL: "-lstdc++"}
+import os, unittest,
+  stew/byteutils,
+  ../evmc/evmc, ../evmc/evmc_nim, ./nim_host
 
+{.compile: "../../../examples/example_host.cpp".}
+{.compile: "../../../examples/example_vm/example_vm.c".}
+
+{.passC: "-I" & currentSourcePath.parentDir().parentDir().parentDir().parentDir() / "include".}
 when defined(posix):
   {.passC: "-std=c++11".}
 
 proc example_host_get_interface(): ptr evmc_host_interface {.importc, cdecl.}
-proc example_host_create_context(tx_context: var evmc_tx_context): evmc_host_context {.importc, cdecl.}
-proc example_host_destroy_context(context: evmc_host_context) {.importc, cdecl.}
+proc example_host_create_context(tx_context: evmc_tx_context): ptr evmc_host_context {.importc, cdecl.}
+proc example_host_destroy_context(context: ptr evmc_host_context) {.importc, cdecl.}
 proc evmc_create_example_vm(): ptr evmc_vm {.importc, cdecl.}
-
-proc nim_host_get_interface(): ptr evmc_host_interface {.importc, cdecl.}
-proc nim_host_create_context(tx_context: var evmc_tx_context): evmc_host_context {.importc, cdecl.}
-proc nim_host_destroy_context(context: evmc_host_context) {.importc, cdecl.}
-proc nim_create_example_vm(): ptr evmc_vm {.importc, cdecl.}
 
 template runTest(testName: string, create_vm, get_host_interface, create_host_context, destroy_host_context: untyped) =
   var vm = create_vm()
@@ -83,22 +83,6 @@ template runTest(testName: string, create_vm, get_host_interface, create_host_co
     test "accountExists":
       check hc.accountExists(address) == true
 
-    test "getBalance":
-      let bal = hc.getBalance(address)
-      check bal == balance
-
-    test "getCodeSize":
-      check hc.getCodeSize(address) == 6
-
-    test "getCodeHash":
-      let hash = hc.getCodeHash(address)
-      check hash == ahash
-
-    test "copyCode":
-      let acode = @[11.byte, 12, 13, 14, 15]
-      let bcode = hc.copyCode(address, 1)
-      check acode == bcode
-
     test "selfdestruct":
       hc.selfdestruct(address, address)
 
@@ -137,11 +121,11 @@ template runTest(testName: string, create_vm, get_host_interface, create_host_co
 
     test "execute and destroy":
       var bn = $tx_context.block_number
-      var res = nvm.execute(EVMC_HOMESTEAD, msg, code)
+      var res = nvm.execute(EVMC_HOMESTEAD, msg.addr, code)
       check res.status_code == EVMC_SUCCESS
       check res.gas_left == 100000
       check equalMem(bn[0].addr, res.output_data, bn.len)
-      res.release(res)
+      res.release(res.addr)
 
       var empty_key: evmc_bytes32
       let val = hc.getStorage(address, empty_key)
@@ -151,14 +135,14 @@ template runTest(testName: string, create_vm, get_host_interface, create_host_co
       destroy_host_context(ctx)
 
 proc main() =
-  runTest("EVMC Nim to C API",
+  runTest("Nim EVMC wrapper: C++ host, C VM",
     evmc_create_example_vm,
     example_host_get_interface,
     example_host_create_context,
     example_host_destroy_context
   )
 
-  runTest("EVMC Nim to Nim API",
+  runTest("Nim EVMC wrapper: Nim host, Nim VM",
     nim_create_example_vm,
     nim_host_get_interface,
     nim_host_create_context,
