@@ -1,3 +1,10 @@
+import os
+
+# when running from the Git repo
+{.passC: "-I" & currentSourcePath.parentDir().parentDir().parentDir().parentDir() / "include".}
+# when installed by Nimble
+{.passC: "-I" & currentSourcePath.parentDir().parentDir() / "include".}
+
 type
   evmc_bytes32* {.importc: "evmc_bytes32", header: "evmc/evmc.h", bycopy.} = object
     bytes* {.importc: "bytes".}: array[32, uint8]

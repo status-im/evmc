@@ -6,11 +6,11 @@
 mode = ScriptMode.Verbose
 
 packageName   = "evmc"
-version       = "0.0.2"
+version       = "0.0.3"
 author        = "Status Research & Development GmbH"
 description   = "A wrapper for the The Ethereum EVMC library"
 license       = "Apache License 2.0"
-skipDirs      = @["tests"]
+installDirs   = @["evmc", "include"]
 
 requires "nim >= 0.19",
          "stew"
@@ -35,3 +35,10 @@ task test_release, "Run all tests - prod implementation":
 task test, "Run all tests - test and production implementation":
   exec "nimble test_debug"
   exec "nimble test_release"
+
+proc copyUpstreamFiles() =
+  cpDir("../../include", "include")
+
+before install:
+  copyUpstreamFiles()
+

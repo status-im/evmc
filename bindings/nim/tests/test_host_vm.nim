@@ -3,14 +3,13 @@
 # This file may not be copied, modified, or distributed except according to
 # those terms.
 
-import os, unittest,
+import unittest,
   stew/byteutils,
   ../evmc/evmc, ../evmc/evmc_nim, ./nim_host
 
 {.compile: "../../../examples/example_host.cpp".}
 {.compile: "../../../examples/example_vm/example_vm.c".}
 
-{.passC: "-I" & currentSourcePath.parentDir().parentDir().parentDir().parentDir() / "include".}
 when defined(posix):
   {.passC: "-std=c++11".}
 

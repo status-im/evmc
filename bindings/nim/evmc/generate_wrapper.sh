@@ -52,6 +52,8 @@ END {
 	for(i in consts)
 		print consts[i]
 }
-' > evmc.nim
-rm tmp.nim
+' > evmc.nim.body
+
+cat evmc.nim.header evmc.nim.body > evmc.nim
+rm tmp.nim evmc.nim.body
 

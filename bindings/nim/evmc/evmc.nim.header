@@ -1,0 +1,7 @@
+import os
+
+# when running from the Git repo
+{.passC: "-I" & currentSourcePath.parentDir().parentDir().parentDir().parentDir() / "include".}
+# when installed by Nimble
+{.passC: "-I" & currentSourcePath.parentDir().parentDir() / "include".}
+
