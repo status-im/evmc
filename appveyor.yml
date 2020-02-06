@@ -15,8 +15,15 @@ environment:
     - VS: 2017-32bit
     - VS: 2015
     - GO: true
+    - NIM: true
+
 cache:
   - C:\.hunter\_Base\Cache -> cmake\Hunter\init.cmake
+  - NimBinaries
+
+matrix:
+  # don't stop at the first failed job
+  fast_finish: false
 
 before_build:
   # Add ninja to PATH. This is done for VS2017 by vsdevcmd, but not for VS2015.
@@ -48,6 +55,20 @@ build_script:
       go build ./bindings/go/evmc
       go generate ./bindings/go/evmc
       go test -v ./bindings/go/evmc
+    }
+    elseif ($env:NIM) {
+      $env:PATH = "C:\mingw-w64\x86_64-8.1.0-posix-seh-rt_v6-rev0\mingw64\bin;$env:PATH"
+      # build the Nim compiler
+      Remove-item alias:curl
+      curl -O -L -s -S https://raw.githubusercontent.com/status-im/nimbus-build-system/master/scripts/build_nim.sh
+      $ErrorActionPreference = 'Continue'
+      env MAKE="mingw32-make -j2" bash build_nim.sh Nim csources dist/nimble NimBinaries
+      $env:PATH = "$pwd\Nim\bin;$env:PATH"
+      # run the test suite
+      cd bindings\nim
+      nimble install -y
+      nimble test
+      cd ..\..
     }
 
 after_build:
